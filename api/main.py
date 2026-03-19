@@ -273,19 +273,36 @@ async def predict(request: PredictionRequest):
         )
 
         if USE_DEMO:
-            # ─── Demo mode: use standalone model ──────────
-            from src.inference.demo_model import predict_demo
-            fare = predict_demo(
-                pickup_latitude=request.pickup_latitude,
-                pickup_longitude=request.pickup_longitude,
-                dropoff_latitude=request.dropoff_latitude,
-                dropoff_longitude=request.dropoff_longitude,
-                pickup_hour=dt.hour,
-                pickup_weekday=dt.weekday(),
-                passenger_count=request.passenger_count,
-                trip_distance=trip_distance,
-            )
-            mode = "demo"
+            # Check if real trained model exists in models/ folder
+            try:
+                from src.inference.trained_model import predict_fare as real_predict
+                fare = real_predict(
+                    pickup_latitude=request.pickup_latitude,
+                    pickup_longitude=request.pickup_longitude,
+                    dropoff_latitude=request.dropoff_latitude,
+                    dropoff_longitude=request.dropoff_longitude,
+                    pickup_hour=dt.hour,
+                    pickup_weekday=dt.weekday(),
+                    pickup_month=dt.month,
+                    is_weekend=1 if dt.weekday() >= 5 else 0,
+                    passenger_count=request.passenger_count,
+                    trip_distance=trip_distance,
+                )
+                mode = "production (standalone)"
+            except Exception as e:
+                logger.warning("Could not use real model, falling back to demo: %s", e)
+                from src.inference.demo_model import predict_demo
+                fare = predict_demo(
+                    pickup_latitude=request.pickup_latitude,
+                    pickup_longitude=request.pickup_longitude,
+                    dropoff_latitude=request.dropoff_latitude,
+                    dropoff_longitude=request.dropoff_longitude,
+                    pickup_hour=dt.hour,
+                    pickup_weekday=dt.weekday(),
+                    passenger_count=request.passenger_count,
+                    trip_distance=trip_distance,
+                )
+                mode = "demo"
         else:
             # ─── Production mode: use MLflow model ────────
             from src.inference.predict import predict_single

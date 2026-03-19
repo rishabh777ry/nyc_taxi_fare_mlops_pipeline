@@ -15,6 +15,7 @@ RUN pip install --no-cache-dir -r requirements-api.txt
 # Application code
 COPY src/ src/
 COPY api/ api/
+COPY models/ models/
 
 # Create data directories
 RUN mkdir -p data/raw data/processed data/predictions

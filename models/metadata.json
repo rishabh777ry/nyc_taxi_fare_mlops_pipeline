@@ -1,0 +1,31 @@
+{
+  "best_model": "GradientBoosting",
+  "feature_columns": [
+    "pickup_hour",
+    "pickup_weekday",
+    "pickup_month",
+    "is_weekend",
+    "trip_distance",
+    "haversine_distance",
+    "passenger_count",
+    "PULocationID",
+    "DOLocationID"
+  ],
+  "metrics": {
+    "LinearRegression": {
+      "rmse": 4.1969,
+      "mae": 2.2939,
+      "r2": 0.9362
+    },
+    "RandomForest": {
+      "rmse": 3.5086,
+      "mae": 1.7451,
+      "r2": 0.9554
+    },
+    "GradientBoosting": {
+      "rmse": 3.4527,
+      "mae": 1.6517,
+      "r2": 0.9568
+    }
+  }
+}
