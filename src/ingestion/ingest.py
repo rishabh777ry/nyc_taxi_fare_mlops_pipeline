@@ -1,7 +1,7 @@
 """
 Data ingestion module for NYC Taxi Fare MLOps pipeline.
 
-Downloads NYC TLC Yellow Taxi trip data (Parquet) and stores it 
+Downloads NYC TLC Yellow Taxi trip data (Parquet) and stores it
 locally or in MinIO for downstream processing.
 """
 

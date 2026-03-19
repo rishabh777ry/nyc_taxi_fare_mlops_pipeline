@@ -15,22 +15,19 @@ Usage:
 
 from __future__ import annotations
 
-import os
-import sys
 import json
-import math
 import logging
 from pathlib import Path
 
-import numpy as np
-import pandas as pd
 import joblib
 import mlflow
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import GradientBoostingRegressor, RandomForestRegressor
 from sklearn.linear_model import LinearRegression
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger(__name__)
@@ -93,11 +90,11 @@ def clean_data(df: pd.DataFrame) -> pd.DataFrame:
 
 def haversine_vectorized(lat1, lon1, lat2, lon2):
     """Compute haversine distance in miles."""
-    R = 3958.8
+    r_earth = 3958.8
     dlat = np.radians(lat2 - lat1)
     dlon = np.radians(lon2 - lon1)
     a = np.sin(dlat / 2) ** 2 + np.cos(np.radians(lat1)) * np.cos(np.radians(lat2)) * np.sin(dlon / 2) ** 2
-    return R * 2 * np.arcsin(np.sqrt(a))
+    return r_earth * 2 * np.arcsin(np.sqrt(a))
 
 
 def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -149,17 +146,17 @@ def train_models(df: pd.DataFrame, sample_size: int = 50000) -> dict:
         df = df.sample(sample_size, random_state=42)
         logger.info("Sampled to %d rows for training.", sample_size)
 
-    X = df[feature_cols].fillna(0)
+    x_df = df[feature_cols].fillna(0)
     y = df[target_col]
 
-    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    x_train, x_test, y_train, y_test = train_test_split(x_df, y, test_size=0.2, random_state=42)
 
     # Scale features
     scaler = StandardScaler()
-    X_train_scaled = scaler.fit_transform(X_train)
-    X_test_scaled = scaler.transform(X_test)
+    x_train_scaled = scaler.fit_transform(x_train)
+    x_test_scaled = scaler.transform(x_test)
 
-    logger.info("Training on %d samples, testing on %d...", len(X_train), len(X_test))
+    logger.info("Training on %d samples, testing on %d...", len(x_train), len(x_test))
 
     models = {
         "LinearRegression": LinearRegression(),
@@ -172,7 +169,7 @@ def train_models(df: pd.DataFrame, sample_size: int = 50000) -> dict:
     }
 
     # Initialize MLflow
-    from src.config import MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_NAME
+    from src.config import MLFLOW_EXPERIMENT_NAME, MLFLOW_TRACKING_URI
     if MLFLOW_TRACKING_URI:
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
         mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
@@ -187,9 +184,9 @@ def train_models(df: pd.DataFrame, sample_size: int = 50000) -> dict:
         run_name = f"{name}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
         with mlflow.start_run(run_name=run_name):
             logger.info("Training %s...", name)
-            model.fit(X_train_scaled, y_train)
+            model.fit(x_train_scaled, y_train)
 
-            y_pred = model.predict(X_test_scaled)
+            y_pred = model.predict(x_test_scaled)
             rmse = float(np.sqrt(mean_squared_error(y_test, y_pred)))
             mae = float(mean_absolute_error(y_test, y_pred))
             r2 = float(r2_score(y_test, y_pred))
@@ -273,13 +270,13 @@ def main():
     print("TRAINING COMPLETE")
     print("=" * 60)
     print(f"Best model: {output['best_name']}")
-    print(f"\nAll results:")
+    print("\nAll results:")
     for name, metrics in output["results"].items():
         print(f"  {name}: RMSE={metrics['rmse']}, MAE={metrics['mae']}, R²={metrics['r2']}")
     print(f"\nArtifacts saved to: {MODEL_DIR}/")
-    print(f"  - model.joblib")
-    print(f"  - scaler.joblib")
-    print(f"  - metadata.json")
+    print("  - model.joblib")
+    print("  - scaler.joblib")
+    print("  - metadata.json")
     print("=" * 60)
 
 

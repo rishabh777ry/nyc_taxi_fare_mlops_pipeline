@@ -31,11 +31,11 @@ def _generate_training_data(n: int = 5000) -> tuple[pd.DataFrame, pd.Series]:
     do_lon = np.random.normal(-73.98, 0.03, n)
 
     # Haversine distance
-    R = 3958.8
+    r_earth = 3958.8
     dlat = np.radians(do_lat - pu_lat)
     dlon = np.radians(do_lon - pu_lon)
     a = np.sin(dlat / 2) ** 2 + np.cos(np.radians(pu_lat)) * np.cos(np.radians(do_lat)) * np.sin(dlon / 2) ** 2
-    distances = R * 2 * np.arcsin(np.sqrt(a))
+    distances = r_earth * 2 * np.arcsin(np.sqrt(a))
 
     hours = np.random.randint(0, 24, n)
     weekdays = np.random.randint(0, 7, n)
@@ -52,7 +52,7 @@ def _generate_training_data(n: int = 5000) -> tuple[pd.DataFrame, pd.Series]:
     fares = base_fare + per_mile * distances + night_surcharge + rush_surcharge + weekend_surcharge + noise
     fares = np.maximum(fares, 2.50)  # Minimum fare
 
-    X = pd.DataFrame({
+    x_df = pd.DataFrame({
         "pickup_hour": hours,
         "pickup_weekday": weekdays,
         "is_weekend": (weekdays >= 5).astype(int),
@@ -61,7 +61,7 @@ def _generate_training_data(n: int = 5000) -> tuple[pd.DataFrame, pd.Series]:
         "passenger_count": passengers,
     })
 
-    return X, pd.Series(fares)
+    return x_df, pd.Series(fares)
 
 
 def get_demo_model() -> GradientBoostingRegressor:
@@ -72,7 +72,7 @@ def get_demo_model() -> GradientBoostingRegressor:
         return _demo_model
 
     logger.info("Training demo model on synthetic data...")
-    X, y = _generate_training_data(5000)
+    x_df, y = _generate_training_data(5000)
 
     model = GradientBoostingRegressor(
         n_estimators=100,
@@ -80,7 +80,7 @@ def get_demo_model() -> GradientBoostingRegressor:
         learning_rate=0.1,
         random_state=42,
     )
-    model.fit(X, y)
+    model.fit(x_df, y)
 
     _demo_model = model
     logger.info("Demo model trained successfully.")
@@ -104,11 +104,11 @@ def predict_demo(
         Predicted fare in USD.
     """
     # Compute haversine distance
-    R = 3958.8
+    r_earth = 3958.8
     dlat = math.radians(dropoff_latitude - pickup_latitude)
     dlon = math.radians(dropoff_longitude - pickup_longitude)
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(pickup_latitude)) * math.cos(math.radians(dropoff_latitude)) * math.sin(dlon / 2) ** 2
-    haversine_dist = R * 2 * math.asin(math.sqrt(a))
+    haversine_dist = r_earth * 2 * math.asin(math.sqrt(a))
 
     if trip_distance is None:
         trip_distance = haversine_dist * 1.15  # Road distance ~15% more than straight line

@@ -34,7 +34,7 @@ def haversine_distance(
 
     Uses vectorized Pandas operations for performance on large datasets.
     """
-    R = 3958.8  # Earth radius in miles
+    r_earth = 3958.8  # Earth radius in miles
 
     lat1_r, lat2_r = np.radians(lat1), np.radians(lat2)
     dlat = np.radians(lat2 - lat1)
@@ -43,7 +43,7 @@ def haversine_distance(
     a = np.sin(dlat / 2) ** 2 + np.cos(lat1_r) * np.cos(lat2_r) * np.sin(dlon / 2) ** 2
     c = 2 * np.arcsin(np.sqrt(a))
 
-    return R * c
+    return r_earth * c
 
 
 def extract_datetime_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -122,8 +122,8 @@ def prepare_location_ids(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def normalize_features(
-    X_train: pd.DataFrame,
-    X_test: pd.DataFrame,
+    x_train: pd.DataFrame,
+    x_test: pd.DataFrame,
     scaler_path: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, StandardScaler]:
     """
@@ -134,14 +134,14 @@ def normalize_features(
     """
     scaler = StandardScaler()
 
-    numerical_cols = X_train.select_dtypes(include=[np.number]).columns.tolist()
+    numerical_cols = x_train.select_dtypes(include=[np.number]).columns.tolist()
     logger.info("Normalizing %d numerical features.", len(numerical_cols))
 
-    X_train_scaled = X_train.copy()
-    X_test_scaled = X_test.copy()
+    x_train_scaled = x_train.copy()
+    x_test_scaled = x_test.copy()
 
-    X_train_scaled[numerical_cols] = scaler.fit_transform(X_train[numerical_cols])
-    X_test_scaled[numerical_cols] = scaler.transform(X_test[numerical_cols])
+    x_train_scaled[numerical_cols] = scaler.fit_transform(x_train[numerical_cols])
+    x_test_scaled[numerical_cols] = scaler.transform(x_test[numerical_cols])
 
     if scaler_path:
         scaler_path.parent.mkdir(parents=True, exist_ok=True)
@@ -149,7 +149,7 @@ def normalize_features(
             pickle.dump(scaler, f)
         logger.info("Scaler saved to %s", scaler_path)
 
-    return X_train_scaled, X_test_scaled, scaler
+    return x_train_scaled, x_test_scaled, scaler
 
 
 def build_features(
@@ -192,26 +192,26 @@ def build_features(
     if not available_features:
         raise ValueError(f"No feature columns found in DataFrame. Available: {list(df.columns)}")
 
-    X = df[available_features].copy()
+    x = df[available_features].copy()
     y = df[TARGET_COLUMN].copy()
 
     # Handle any remaining NaN
-    X = X.fillna(0)
+    x = x.fillna(0)
     y = y.fillna(y.median())
 
     logger.info("Features selected: %s", available_features)
-    logger.info("Feature matrix shape: %s, Target shape: %s", X.shape, y.shape)
+    logger.info("Feature matrix shape: %s, Target shape: %s", x.shape, y.shape)
 
     # Step 6: Train/test split
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=config.test_size, random_state=config.random_state
+    x_train, x_test, y_train, y_test = train_test_split(
+        x, y, test_size=config.test_size, random_state=config.random_state
     )
 
     # Step 7: Normalize
     scaler_path = PROCESSED_DATA_DIR / "scaler.pkl"
-    X_train, X_test, scaler = normalize_features(X_train, X_test, scaler_path=scaler_path)
+    x_train, x_test, scaler = normalize_features(x_train, x_test, scaler_path=scaler_path)
 
     logger.info(
-        "Feature engineering complete. Train: %d, Test: %d", len(X_train), len(X_test)
+        "Feature engineering complete. Train: %d, Test: %d", len(x_train), len(x_test)
     )
-    return X_train, X_test, y_train, y_test, scaler
+    return x_train, x_test, y_train, y_test, scaler

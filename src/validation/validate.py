@@ -49,7 +49,7 @@ class ValidationReport:
 
     def summary(self) -> str:
         lines = [
-            f"Validation Report",
+            "Validation Report",
             f"  Total rows: {self.total_rows:,}",
             f"  Rows after cleaning: {self.rows_after_cleaning:,}",
             f"  Rows removed: {self.total_rows - self.rows_after_cleaning:,}",
@@ -90,7 +90,7 @@ def validate_schema(df: pd.DataFrame, report: ValidationReport) -> pd.DataFrame:
     """
     Validate that the DataFrame contains the required columns.
 
-    The NYC TLC schema changed over time — newer data uses LocationIDs 
+    The NYC TLC schema changed over time — newer data uses LocationIDs
     instead of lat/lon.  We accept either and normalize later.
     """
     present = set(df.columns)

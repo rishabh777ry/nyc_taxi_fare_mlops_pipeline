@@ -7,10 +7,10 @@ Orchestrates: ingest → validate → feature engineering → train → evaluate
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 from prefect import flow, task
 from prefect.tasks import task_input_hash
-from datetime import timedelta
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,9 +57,9 @@ def validate_data(df):
 def build_features_task(df):
     """Run feature engineering pipeline."""
     from src.features.engineer import build_features
-    X_train, X_test, y_train, y_test, scaler = build_features(df)
-    print(f"Features built — Train: {len(X_train):,}, Test: {len(X_test):,}")
-    return X_train, X_test, y_train, y_test
+    x_train, x_test, y_train, y_test, scaler = build_features(df)
+    print(f"Features built — Train: {len(x_train):,}, Test: {len(x_test):,}")
+    return x_train, x_test, y_train, y_test
 
 
 @task(
@@ -67,10 +67,10 @@ def build_features_task(df):
     retries=1,
     log_prints=True,
 )
-def train_models_task(X_train, X_test, y_train, y_test):
+def train_models_task(x_train, x_test, y_train, y_test):
     """Train all models and register the best one."""
     from src.training.train import train_all_models
-    best_name, version = train_all_models(X_train, y_train, X_test, y_test)
+    best_name, version = train_all_models(x_train, y_train, x_test, y_test)
     print(f"Best model: {best_name} (version {version})")
     return best_name, version
 
@@ -80,13 +80,13 @@ def train_models_task(X_train, X_test, y_train, y_test):
     retries=1,
     log_prints=True,
 )
-def evaluate_model_task(X_test, y_test):
+def evaluate_model_task(x_test, y_test):
     """Evaluate the production model on the test set."""
     from src.inference.predict import load_production_model
     from src.training.evaluate import evaluate_model
 
     model = load_production_model(force_reload=True)
-    metrics = evaluate_model(model, X_test, y_test)
+    metrics = evaluate_model(model, x_test, y_test)
     print(f"Final evaluation — RMSE: {metrics['rmse']:.4f}, MAE: {metrics['mae']:.4f}")
     return metrics
 
@@ -120,13 +120,13 @@ def training_pipeline(
     df_clean = validate_data(df)
 
     # Step 3: Feature Engineering
-    X_train, X_test, y_train, y_test = build_features_task(df_clean)
+    x_train, x_test, y_train, y_test = build_features_task(df_clean)
 
     # Step 4: Train + Register
-    best_name, version = train_models_task(X_train, X_test, y_train, y_test)
+    best_name, version = train_models_task(x_train, x_test, y_train, y_test)
 
     # Step 5: Final evaluation
-    metrics = evaluate_model_task(X_test, y_test)
+    metrics = evaluate_model_task(x_test, y_test)
 
     print(f"Pipeline complete. Best model: {best_name} v{version}")
     print(f"  RMSE: {metrics['rmse']:.4f}, MAE: {metrics['mae']:.4f}, R²: {metrics['r2']:.4f}")

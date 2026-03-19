@@ -13,7 +13,6 @@ import math
 from pathlib import Path
 
 import joblib
-import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
@@ -75,11 +74,11 @@ def predict_fare(
     model, scaler, metadata = load_trained_model()
 
     # Compute haversine distance
-    R = 3958.8
+    r_earth = 3958.8
     dlat = math.radians(dropoff_latitude - pickup_latitude)
     dlon = math.radians(dropoff_longitude - pickup_longitude)
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(pickup_latitude)) * math.cos(math.radians(dropoff_latitude)) * math.sin(dlon / 2) ** 2
-    haversine_dist = R * 2 * math.asin(math.sqrt(a))
+    haversine_dist = r_earth * 2 * math.asin(math.sqrt(a))
 
     if trip_distance is None:
         trip_distance = haversine_dist * 1.15

@@ -10,10 +10,9 @@ Features:
 from __future__ import annotations
 
 import os
-import sys
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 import requests
@@ -134,7 +133,7 @@ if page == "🎯 Predict Fare":
                 # Demo mode: estimate fare using NYC taxi formula
                 # Base fare $3.00 + $2.50/mile + time surcharge
                 hour = int(pickup_time.strftime("%H"))
-                surcharge = 1.0 if (20 <= hour or hour < 6) else 0.0
+                surcharge = 1.0 if (hour >= 20 or hour < 6) else 0.0
                 predicted_fare = round(3.00 + 2.50 * trip_dist + surcharge + np.random.uniform(0, 2), 2)
                 source = "Demo Estimate"
 

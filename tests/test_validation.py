@@ -4,7 +4,6 @@ Unit tests for data validation module.
 
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -24,7 +23,7 @@ class TestValidateSchema:
     def test_valid_schema_passes(self, sample_raw_df):
         """Schema validation should pass for a complete DataFrame."""
         report = ValidationReport()
-        df = validate_schema(sample_raw_df, report)
+        validate_schema(sample_raw_df, report)
         assert report.schema_valid is True
         assert len(report.errors) == 0
 

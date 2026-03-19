@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from io import BytesIO
 
 import matplotlib
+
 matplotlib.use("Agg")  # Non-interactive backend for Docker/CI
 import matplotlib.pyplot as plt
 import numpy as np
@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 
 def evaluate_model(
     model,
-    X_test: pd.DataFrame,
+    x_test: pd.DataFrame,
     y_test: pd.Series,
     output_dir: Path | None = None,
 ) -> dict[str, float]:
@@ -44,7 +44,7 @@ def evaluate_model(
         output_dir = PROCESSED_DATA_DIR / "eval_plots"
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    y_pred = model.predict(X_test)
+    y_pred = model.predict(x_test)
 
     metrics = {
         "rmse": float(np.sqrt(mean_squared_error(y_test, y_pred))),

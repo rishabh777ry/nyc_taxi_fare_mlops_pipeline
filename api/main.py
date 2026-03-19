@@ -21,16 +21,15 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 
-import numpy as np
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import Response
 from prometheus_client import (
+    CONTENT_TYPE_LATEST,
     Counter,
     Histogram,
     generate_latest,
-    CONTENT_TYPE_LATEST,
 )
-from fastapi.responses import Response
 from pydantic import BaseModel, Field, field_validator
 
 logging.basicConfig(
@@ -107,8 +106,8 @@ class PredictionRequest(BaseModel):
     def validate_datetime(cls, v):
         try:
             datetime.fromisoformat(v)
-        except ValueError:
-            raise ValueError(f"Invalid datetime format: {v}. Use ISO format (YYYY-MM-DDTHH:MM:SS).")
+        except ValueError as e:
+            raise ValueError(f"Invalid datetime format: {v}. Use ISO format (YYYY-MM-DDTHH:MM:SS).") from e
         return v
 
 
@@ -145,11 +144,11 @@ class ModelInfoResponse(BaseModel):
 # ─── Helper: Haversine Distance ──────────────────────────────────
 def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Compute haversine distance in miles between two points."""
-    R = 3958.8
+    r_earth = 3958.8
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
     a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
-    return R * 2 * math.asin(math.sqrt(a))
+    return r_earth * 2 * math.asin(math.sqrt(a))
 
 
 # ─── Model State ──────────────────────────────────────────────────
@@ -331,7 +330,7 @@ async def predict(request: PredictionRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Prediction failed: {str(e)}",
-        )
+        ) from e
 
 
 @app.get("/model-info", response_model=ModelInfoResponse, tags=["Model"])
@@ -358,6 +357,7 @@ async def model_info():
 
     try:
         import mlflow
+
         from src.config import MLFLOW_MODEL_NAME, MLFLOW_TRACKING_URI
 
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
@@ -383,7 +383,7 @@ async def model_info():
 
     except Exception as e:
         logger.error("Could not fetch model info: %s", e)
-        raise HTTPException(status_code=503, detail=f"MLflow unavailable: {str(e)}")
+        raise HTTPException(status_code=503, detail=f"MLflow unavailable: {str(e)}") from e
 
 
 @app.get("/metrics", tags=["Monitoring"])

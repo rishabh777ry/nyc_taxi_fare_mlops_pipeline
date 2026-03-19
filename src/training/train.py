@@ -2,7 +2,7 @@
 Model training module for NYC Taxi Fare MLOps pipeline.
 
 Trains multiple models (Linear Regression, Random Forest, XGBoost),
-performs hyperparameter tuning, logs everything to MLflow, and 
+performs hyperparameter tuning, logs everything to MLflow, and
 registers the best model.
 """
 
@@ -49,8 +49,8 @@ def compute_metrics(y_true: pd.Series, y_pred: np.ndarray) -> dict[str, float]:
 
 
 def train_linear_regression(
-    X_train: pd.DataFrame, y_train: pd.Series,
-    X_test: pd.DataFrame, y_test: pd.Series,
+    x_train: pd.DataFrame, y_train: pd.Series,
+    x_test: pd.DataFrame, y_test: pd.Series,
 ) -> tuple[LinearRegression, dict[str, float], str]:
     """Train Linear Regression and log to MLflow."""
     with mlflow.start_run(run_name="linear_regression", nested=True) as run:
@@ -58,10 +58,10 @@ def train_linear_regression(
         start = time.time()
 
         model = LinearRegression()
-        model.fit(X_train, y_train)
+        model.fit(x_train, y_train)
         train_time = time.time() - start
 
-        y_pred = model.predict(X_test)
+        y_pred = model.predict(x_test)
         metrics = compute_metrics(y_test, y_pred)
 
         mlflow.log_params({"model_type": "linear_regression"})
@@ -75,8 +75,8 @@ def train_linear_regression(
 
 
 def train_random_forest(
-    X_train: pd.DataFrame, y_train: pd.Series,
-    X_test: pd.DataFrame, y_test: pd.Series,
+    x_train: pd.DataFrame, y_train: pd.Series,
+    x_test: pd.DataFrame, y_test: pd.Series,
     config: TrainingConfig | None = None,
 ) -> tuple[RandomForestRegressor, dict[str, float], str]:
     """Train Random Forest with hyperparameter tuning and log to MLflow."""
@@ -96,11 +96,11 @@ def train_random_forest(
             n_jobs=-1,
             verbose=0,
         )
-        grid_search.fit(X_train, y_train)
+        grid_search.fit(x_train, y_train)
         train_time = time.time() - start
 
         best_model = grid_search.best_estimator_
-        y_pred = best_model.predict(X_test)
+        y_pred = best_model.predict(x_test)
         metrics = compute_metrics(y_test, y_pred)
 
         mlflow.log_params({"model_type": "random_forest", **grid_search.best_params_})
@@ -114,8 +114,8 @@ def train_random_forest(
 
 
 def train_xgboost(
-    X_train: pd.DataFrame, y_train: pd.Series,
-    X_test: pd.DataFrame, y_test: pd.Series,
+    x_train: pd.DataFrame, y_train: pd.Series,
+    x_test: pd.DataFrame, y_test: pd.Series,
     config: TrainingConfig | None = None,
 ) -> tuple[XGBRegressor, dict[str, float], str]:
     """Train XGBoost with hyperparameter tuning and log to MLflow."""
@@ -140,11 +140,11 @@ def train_xgboost(
             n_jobs=-1,
             verbose=0,
         )
-        grid_search.fit(X_train, y_train)
+        grid_search.fit(x_train, y_train)
         train_time = time.time() - start
 
         best_model = grid_search.best_estimator_
-        y_pred = best_model.predict(X_test)
+        y_pred = best_model.predict(x_test)
         metrics = compute_metrics(y_test, y_pred)
 
         mlflow.log_params({"model_type": "xgboost", **grid_search.best_params_})
@@ -199,8 +199,8 @@ def register_best_model(
 
 
 def train_all_models(
-    X_train: pd.DataFrame, y_train: pd.Series,
-    X_test: pd.DataFrame, y_test: pd.Series,
+    x_train: pd.DataFrame, y_train: pd.Series,
+    x_test: pd.DataFrame, y_test: pd.Series,
     config: TrainingConfig | None = None,
 ) -> tuple[str, str]:
     """
@@ -214,19 +214,19 @@ def train_all_models(
 
     setup_mlflow()
 
-    with mlflow.start_run(run_name="training_pipeline") as parent_run:
+    with mlflow.start_run(run_name="training_pipeline"):
         results = []
 
         if "linear_regression" in config.models:
-            _, metrics, run_id = train_linear_regression(X_train, y_train, X_test, y_test)
+            _, metrics, run_id = train_linear_regression(x_train, y_train, x_test, y_test)
             results.append(("linear_regression", metrics, run_id))
 
         if "random_forest" in config.models:
-            _, metrics, run_id = train_random_forest(X_train, y_train, X_test, y_test, config)
+            _, metrics, run_id = train_random_forest(x_train, y_train, x_test, y_test, config)
             results.append(("random_forest", metrics, run_id))
 
         if "xgboost" in config.models:
-            _, metrics, run_id = train_xgboost(X_train, y_train, X_test, y_test, config)
+            _, metrics, run_id = train_xgboost(x_train, y_train, x_test, y_test, config)
             results.append(("xgboost", metrics, run_id))
 
         # Log comparison table
