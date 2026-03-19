@@ -25,6 +25,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import joblib
+import mlflow
 from sklearn.linear_model import LinearRegression
 from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
@@ -170,27 +171,46 @@ def train_models(df: pd.DataFrame, sample_size: int = 50000) -> dict:
         ),
     }
 
+    # Initialize MLflow
+    from src.config import MLFLOW_TRACKING_URI, MLFLOW_EXPERIMENT_NAME
+    if MLFLOW_TRACKING_URI:
+        mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
+        mlflow.set_experiment(MLFLOW_EXPERIMENT_NAME)
+        logger.info("MLflow tracking enabled: %s", MLFLOW_TRACKING_URI)
+
     results = {}
     best_model = None
     best_rmse = float("inf")
     best_name = ""
 
     for name, model in models.items():
-        logger.info("Training %s...", name)
-        model.fit(X_train_scaled, y_train)
+        run_name = f"{name}_{pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')}"
+        with mlflow.start_run(run_name=run_name):
+            logger.info("Training %s...", name)
+            model.fit(X_train_scaled, y_train)
 
-        y_pred = model.predict(X_test_scaled)
-        rmse = float(np.sqrt(mean_squared_error(y_test, y_pred)))
-        mae = float(mean_absolute_error(y_test, y_pred))
-        r2 = float(r2_score(y_test, y_pred))
+            y_pred = model.predict(X_test_scaled)
+            rmse = float(np.sqrt(mean_squared_error(y_test, y_pred)))
+            mae = float(mean_absolute_error(y_test, y_pred))
+            r2 = float(r2_score(y_test, y_pred))
 
-        results[name] = {"rmse": round(rmse, 4), "mae": round(mae, 4), "r2": round(r2, 4)}
-        logger.info("  %s → RMSE: %.4f, MAE: %.4f, R²: %.4f", name, rmse, mae, r2)
+            # Log to MLflow
+            mlflow.log_params(model.get_params())
+            mlflow.log_metrics({"rmse": rmse, "mae": mae, "r2": r2})
+            mlflow.set_tag("model_type", name)
 
-        if rmse < best_rmse:
-            best_rmse = rmse
-            best_model = model
-            best_name = name
+            results[name] = {"rmse": round(rmse, 4), "mae": round(mae, 4), "r2": round(r2, 4)}
+            logger.info("  %s → RMSE: %.4f, MAE: %.4f, R²: %.4f", name, rmse, mae, r2)
+
+            if rmse < best_rmse:
+                best_rmse = rmse
+                best_model = model
+                best_name = name
+
+    if best_model:
+         with mlflow.start_run(run_name=f"Best_Model_{best_name}"):
+             mlflow.log_metrics(results[best_name])
+             mlflow.set_tag("is_best", "true")
 
     logger.info("Best model: %s (RMSE: %.4f)", best_name, best_rmse)
 

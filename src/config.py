@@ -73,9 +73,12 @@ FEATURE_COLUMNS = [
 TARGET_COLUMN = "fare_amount"
 
 # ─── MLflow ───────────────────────────────────────────────────────
-MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
+MLFLOW_TRACKING_URI = os.getenv(
+    "MLFLOW_TRACKING_URI",
+    "https://dagshub.com/rishabh777ry/nyc_taxi_fare_mlops_pipeline.mlflow"
+)
 MLFLOW_EXPERIMENT_NAME = os.getenv("MLFLOW_EXPERIMENT_NAME", "nyc-taxi-fare")
-MLFLOW_MODEL_NAME = "nyc-taxi-fare-model"
+MLFLOW_MODEL_NAME = os.getenv("MLFLOW_MODEL_NAME", "nyc-taxi-fare-model")
 
 # ─── MinIO / S3 ──────────────────────────────────────────────────
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "http://localhost:9000")
