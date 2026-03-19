@@ -1,0 +1,16 @@
+# render.yaml — Render.com Infrastructure-as-Code Blueprint
+# Deploy with: https://render.com/deploy?repo=https://github.com/rishabh777ry/nyc_taxi_fare_mlops_pipeline
+
+services:
+  - type: web
+    name: nyc-taxi-fare-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    region: oregon
+    plan: free
+    envVars:
+      - key: MLFLOW_TRACKING_URI
+        value: ""
+      - key: DEMO_MODE
+        value: "true"
+    healthCheckPath: /health

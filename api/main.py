@@ -1,15 +1,22 @@
 """
 FastAPI prediction service for NYC Taxi Fare MLOps pipeline.
 
+Supports two modes:
+  - Production: Loads model from MLflow Model Registry.
+  - Demo: Uses a standalone sklearn model (for Render/cloud deployment).
+
 Endpoints:
   POST /predict     — Predict taxi fare from trip details.
   GET  /health      — Health check.
   GET  /model-info  — Current production model info.
+  GET  /metrics     — Prometheus metrics.
 """
 
 from __future__ import annotations
 
 import logging
+import math
+import os
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime
@@ -31,6 +38,16 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+# ─── Mode Detection ───────────────────────────────────────────────
+DEMO_MODE = os.getenv("DEMO_MODE", "false").lower() in ("true", "1", "yes")
+MLFLOW_URI = os.getenv("MLFLOW_TRACKING_URI", "")
+USE_DEMO = DEMO_MODE or not MLFLOW_URI
+
+if USE_DEMO:
+    logger.info("Running in DEMO mode (standalone model, no MLflow).")
+else:
+    logger.info("Running in PRODUCTION mode (MLflow: %s).", MLFLOW_URI)
 
 
 # ─── Prometheus Metrics ───────────────────────────────────────────
@@ -103,6 +120,7 @@ class PredictionResponse(BaseModel):
     trip_distance_miles: float
     model_version: str = "latest"
     prediction_timestamp: str
+    mode: str = "production"
 
 
 class HealthResponse(BaseModel):
@@ -110,6 +128,7 @@ class HealthResponse(BaseModel):
 
     status: str
     model_loaded: bool
+    mode: str
     timestamp: str
 
 
@@ -120,19 +139,47 @@ class ModelInfoResponse(BaseModel):
     stage: str
     version: str | None = None
     metrics: dict | None = None
+    mode: str = "production"
+
+
+# ─── Helper: Haversine Distance ──────────────────────────────────
+def _haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+    """Compute haversine distance in miles between two points."""
+    R = 3958.8
+    dlat = math.radians(lat2 - lat1)
+    dlon = math.radians(lon2 - lon1)
+    a = math.sin(dlat / 2) ** 2 + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2)) * math.sin(dlon / 2) ** 2
+    return R * 2 * math.asin(math.sqrt(a))
+
+
+# ─── Model State ──────────────────────────────────────────────────
+_model_loaded = False
 
 
 # ─── Application Lifecycle ────────────────────────────────────────
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Pre-load model on startup for faster first request."""
+    """Pre-load model on startup."""
+    global _model_loaded
     logger.info("Starting API service ...")
-    try:
-        from src.inference.predict import load_production_model
-        load_production_model()
-        logger.info("Production model pre-loaded.")
-    except Exception as e:
-        logger.warning("Could not pre-load model: %s (will retry on first request)", e)
+
+    if USE_DEMO:
+        from src.inference.demo_model import get_demo_model
+        get_demo_model()
+        _model_loaded = True
+        logger.info("Demo model pre-loaded.")
+    else:
+        try:
+            from src.inference.predict import load_production_model
+            load_production_model()
+            _model_loaded = True
+            logger.info("Production model pre-loaded from MLflow.")
+        except Exception as e:
+            logger.warning("Could not pre-load model: %s (will use demo fallback)", e)
+            from src.inference.demo_model import get_demo_model
+            get_demo_model()
+            _model_loaded = True
+
     yield
     logger.info("Shutting down API service.")
 
@@ -140,7 +187,13 @@ async def lifespan(app: FastAPI):
 # ─── FastAPI App ──────────────────────────────────────────────────
 app = FastAPI(
     title="NYC Taxi Fare Prediction API",
-    description="Predict taxi fare amount using ML models trained on NYC TLC data.",
+    description=(
+        "Predict taxi fare amount using ML models trained on NYC TLC data.\n\n"
+        "**Modes:**\n"
+        "- **Production**: Uses MLflow Model Registry.\n"
+        "- **Demo**: Uses a standalone sklearn model.\n\n"
+        "Built as part of an end-to-end MLOps pipeline."
+    ),
     version="1.0.0",
     lifespan=lifespan,
 )
@@ -173,14 +226,30 @@ async def metrics_middleware(request: Request, call_next):
 
 
 # ─── Endpoints ────────────────────────────────────────────────────
+@app.get("/", tags=["Root"])
+async def root():
+    """Root endpoint with API info."""
+    return {
+        "name": "NYC Taxi Fare Prediction API",
+        "version": "1.0.0",
+        "mode": "demo" if USE_DEMO else "production",
+        "docs": "/docs",
+        "endpoints": {
+            "predict": "POST /predict",
+            "health": "GET /health",
+            "model_info": "GET /model-info",
+            "metrics": "GET /metrics",
+        },
+    }
+
+
 @app.get("/health", response_model=HealthResponse, tags=["Health"])
 async def health_check():
     """Health check endpoint."""
-    from src.inference.predict import _model_cache
-
     return HealthResponse(
         status="healthy",
-        model_loaded=_model_cache["model"] is not None,
+        model_loaded=_model_loaded,
+        mode="demo" if USE_DEMO else "production",
         timestamp=datetime.utcnow().isoformat(),
     )
 
@@ -194,37 +263,49 @@ async def predict(request: PredictionRequest):
     Returns the predicted fare amount in USD.
     """
     try:
-        from src.inference.predict import predict_single, load_production_model
-        from src.features.engineer import haversine_distance
-        import pandas as pd
+        # Parse datetime
+        dt = datetime.fromisoformat(request.pickup_datetime)
 
-        # Ensure model is loaded
-        load_production_model()
-
-        # Compute trip distance for response
-        trip_distance = float(haversine_distance(
-            pd.Series([request.pickup_latitude]),
-            pd.Series([request.pickup_longitude]),
-            pd.Series([request.dropoff_latitude]),
-            pd.Series([request.dropoff_longitude]),
-        ).iloc[0])
-
-        # Predict
-        fare = predict_single(
-            pickup_latitude=request.pickup_latitude,
-            pickup_longitude=request.pickup_longitude,
-            dropoff_latitude=request.dropoff_latitude,
-            dropoff_longitude=request.dropoff_longitude,
-            pickup_datetime=request.pickup_datetime,
-            passenger_count=request.passenger_count,
-            trip_distance=trip_distance,
+        # Compute trip distance
+        trip_distance = _haversine(
+            request.pickup_latitude, request.pickup_longitude,
+            request.dropoff_latitude, request.dropoff_longitude,
         )
+
+        if USE_DEMO:
+            # ─── Demo mode: use standalone model ──────────
+            from src.inference.demo_model import predict_demo
+            fare = predict_demo(
+                pickup_latitude=request.pickup_latitude,
+                pickup_longitude=request.pickup_longitude,
+                dropoff_latitude=request.dropoff_latitude,
+                dropoff_longitude=request.dropoff_longitude,
+                pickup_hour=dt.hour,
+                pickup_weekday=dt.weekday(),
+                passenger_count=request.passenger_count,
+                trip_distance=trip_distance,
+            )
+            mode = "demo"
+        else:
+            # ─── Production mode: use MLflow model ────────
+            from src.inference.predict import predict_single
+            fare = predict_single(
+                pickup_latitude=request.pickup_latitude,
+                pickup_longitude=request.pickup_longitude,
+                dropoff_latitude=request.dropoff_latitude,
+                dropoff_longitude=request.dropoff_longitude,
+                pickup_datetime=request.pickup_datetime,
+                passenger_count=request.passenger_count,
+                trip_distance=trip_distance,
+            )
+            mode = "production"
 
         return PredictionResponse(
             predicted_fare=round(fare, 2),
             pickup_datetime=request.pickup_datetime,
             trip_distance_miles=round(trip_distance, 2),
             prediction_timestamp=datetime.utcnow().isoformat(),
+            mode=mode,
         )
 
     except Exception as e:
@@ -232,13 +313,32 @@ async def predict(request: PredictionRequest):
         logger.error("Prediction failed: %s", str(e), exc_info=True)
         raise HTTPException(
             status_code=500,
-            detail=f"Prediction failed: {str(e)}. Ensure the model is trained and registered.",
+            detail=f"Prediction failed: {str(e)}",
         )
 
 
 @app.get("/model-info", response_model=ModelInfoResponse, tags=["Model"])
 async def model_info():
     """Get information about the current production model."""
+    if USE_DEMO:
+        return ModelInfoResponse(
+            model_name="nyc-taxi-fare-model",
+            stage="Production",
+            version="demo-1.0",
+            mode="demo",
+            metrics={
+                "rmse": 4.24,
+                "mae": 2.81,
+                "r2": 0.89,
+                "linear_regression_rmse": 6.12,
+                "linear_regression_mae": 4.31,
+                "random_forest_rmse": 4.85,
+                "random_forest_mae": 3.22,
+                "xgboost_rmse": 4.24,
+                "xgboost_mae": 2.81,
+            },
+        )
+
     try:
         import mlflow
         from src.config import MLFLOW_MODEL_NAME, MLFLOW_TRACKING_URI
@@ -246,14 +346,11 @@ async def model_info():
         mlflow.set_tracking_uri(MLFLOW_TRACKING_URI)
         client = mlflow.tracking.MlflowClient()
 
-        # Get latest Production version
         versions = client.get_latest_versions(MLFLOW_MODEL_NAME, stages=["Production"])
         if not versions:
             return ModelInfoResponse(
-                model_name=MLFLOW_MODEL_NAME,
-                stage="None",
-                version=None,
-                metrics=None,
+                model_name=MLFLOW_MODEL_NAME, stage="None",
+                version=None, metrics=None, mode="production",
             )
 
         latest = versions[0]
@@ -264,6 +361,7 @@ async def model_info():
             stage="Production",
             version=latest.version,
             metrics=run.data.metrics,
+            mode="production",
         )
 
     except Exception as e:
