@@ -1,0 +1,179 @@
+# ═══════════════════════════════════════════════════════════════════
+# NYC Taxi Fare MLOps — Docker Compose
+# ═══════════════════════════════════════════════════════════════════
+# Services: PostgreSQL, MinIO, MLflow, FastAPI, Prefect, Prometheus, Grafana, Streamlit
+
+version: "3.9"
+
+x-common-env: &common-env
+  MLFLOW_TRACKING_URI: http://mlflow:5000
+  MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+  MLFLOW_EXPERIMENT_NAME: nyc-taxi-fare
+  AWS_ACCESS_KEY_ID: mlops_admin
+  AWS_SECRET_ACCESS_KEY: mlops_secret_key
+  MINIO_ENDPOINT: http://minio:9000
+  MINIO_BUCKET_NAME: mlflow-artifacts
+
+services:
+  # ─── PostgreSQL (MLflow backend store) ────────────────────────
+  postgres:
+    image: postgres:15-alpine
+    container_name: mlops-postgres
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow_secret
+      POSTGRES_DB: mlflow_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U mlflow -d mlflow_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── MinIO (S3-compatible artifact store) ─────────────────────
+  minio:
+    image: minio/minio:latest
+    container_name: mlops-minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: mlops_admin
+      MINIO_ROOT_PASSWORD: mlops_secret_key
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ─── MinIO bucket initialization ──────────────────────────────
+  minio-init:
+    image: minio/mc:latest
+    container_name: mlops-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+        mc alias set minio http://minio:9000 mlops_admin mlops_secret_key;
+        mc mb --ignore-existing minio/mlflow-artifacts;
+        echo 'MinIO bucket created successfully';
+      "
+
+  # ─── MLflow Tracking Server ───────────────────────────────────
+  mlflow:
+    build:
+      context: .
+      dockerfile: docker/mlflow.Dockerfile
+    container_name: mlops-mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      POSTGRES_USER: mlflow
+      POSTGRES_PASSWORD: mlflow_secret
+      POSTGRES_DB: mlflow_db
+      AWS_ACCESS_KEY_ID: mlops_admin
+      AWS_SECRET_ACCESS_KEY: mlops_secret_key
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+    ports:
+      - "5000:5000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # ─── FastAPI Prediction Service ───────────────────────────────
+  api:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    container_name: mlops-api
+    depends_on:
+      - mlflow
+    environment:
+      <<: *common-env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  # ─── Training Pipeline ────────────────────────────────────────
+  training:
+    build:
+      context: .
+      dockerfile: docker/training.Dockerfile
+    container_name: mlops-training
+    depends_on:
+      - mlflow
+    environment:
+      <<: *common-env
+    volumes:
+      - ./data:/app/data
+    profiles:
+      - training  # Only start with: docker-compose --profile training up
+
+  # ─── Prometheus ───────────────────────────────────────────────
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: mlops-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.retention.time=30d"
+
+  # ─── Grafana ──────────────────────────────────────────────────
+  grafana:
+    image: grafana/grafana:latest
+    container_name: mlops-grafana
+    depends_on:
+      - prometheus
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./monitoring/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+
+  # ─── Streamlit Dashboard ──────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: docker/dashboard.Dockerfile
+    container_name: mlops-dashboard
+    depends_on:
+      - api
+    environment:
+      API_URL: http://api:8000
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    ports:
+      - "8501:8501"
+
+volumes:
+  postgres_data:
+  minio_data:
+  prometheus_data:
+  grafana_data:
