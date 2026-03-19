@@ -1,0 +1,111 @@
+name: CI Pipeline
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  PYTHON_VERSION: "3.11"
+
+jobs:
+  # ─── Lint ─────────────────────────────────────────────────────
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install ruff
+        run: pip install ruff
+
+      - name: Run ruff check
+        run: ruff check src/ api/ pipelines/ tests/ dashboard/ monitoring/
+
+      - name: Run ruff format check
+        run: ruff format --check src/ api/ pipelines/ tests/ dashboard/ monitoring/
+
+  # ─── Test ─────────────────────────────────────────────────────
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('pyproject.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short --cov=src --cov=api --cov-report=xml
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  # ─── Docker Build ─────────────────────────────────────────────
+  docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build API image
+        run: docker build -f docker/api.Dockerfile -t nyc-taxi-fare-api:${{ github.sha }} .
+
+      - name: Build MLflow image
+        run: docker build -f docker/mlflow.Dockerfile -t nyc-taxi-fare-mlflow:${{ github.sha }} .
+
+      - name: Build Training image
+        run: docker build -f docker/training.Dockerfile -t nyc-taxi-fare-training:${{ github.sha }} .
+
+      - name: Build Dashboard image
+        run: docker build -f docker/dashboard.Dockerfile -t nyc-taxi-fare-dashboard:${{ github.sha }} .
+
+  # ─── Docker Compose Smoke Test ────────────────────────────────
+  smoke-test:
+    name: Docker Compose Smoke Test
+    runs-on: ubuntu-latest
+    needs: docker
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start services
+        run: |
+          docker-compose up -d postgres minio minio-init mlflow api prometheus grafana dashboard
+          sleep 30
+
+      - name: Check API health
+        run: |
+          curl -f http://localhost:8000/health || exit 1
+
+      - name: Check MLflow
+        run: |
+          curl -sf http://localhost:5000/ | head || echo "MLflow may take time to start"
+
+      - name: Cleanup
+        if: always()
+        run: docker-compose down -v
